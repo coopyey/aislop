@@ -2,28 +2,50 @@ import os
 import argparse
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 
-# Creating the ai client
-load_dotenv()
-api_key = os.environ.get("GEMINI_API_KEY")
-if not api_key:
-    raise RuntimeError("API Key Empty")
-client = genai.Client(api_key=api_key)
+def main() -> None:
+    # Setting up argument parsing
+    parser = argparse.ArgumentParser(description="AI Code Assistant")
+    parser.add_argument("user_prompt", type=str, help="Prompt to send to Gemini")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    args = parser.parse_args()
 
-# Creating the argument setup
-parser = argparse.ArgumentParser(description="AI Bot")
-parser.add_argument("user_prompt", type=str, help="Prompt to give to the bot.")
-args = parser.parse_args()
-# Now we can access args.user_prompt
+    # Setting up environment and getting key
+    load_dotenv()
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY environment variable not set")
 
-result = client.models.generate_content(
-    model='gemini-2.5-flash',
-    contents=args.user_prompt
-)
+    # Creating the client and taking in the prompt
+    client = genai.Client(api_key=api_key)
+    messages: list[types.Content] = [
+        types.Content(role="user", parts=[types.Part(text=args.user_prompt)])
+    ]
+    if args.verbose:
+        print(f"User prompt: {args.user_prompt}\n")
 
-if not result.usage_metadata:
-    raise RuntimeError("Metadata empty: API call likely failed")
-else:
-    print(f"Prompt tokens: {result.usage_metadata.prompt_token_count}")
-    print(f"Response tokens: {result.usage_metadata.candidates_token_count}")
-    print(result.text)
+    generate_content(client, messages, args.verbose)
+
+def generate_content(
+    client: genai.Client, messages: list[types.Content], verbose: bool) -> None:
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=messages,
+    )
+    # If metadata fails then call probably failed
+    if not response.usage_metadata:
+        raise RuntimeError("Gemini API response appears to be malformed")
+
+    # If verbose command specified
+    if verbose:
+        print("Prompt tokens:", response.usage_metadata.prompt_token_count)
+        print("Response tokens:", response.usage_metadata.candidates_token_count)
+
+    print("Response:")
+    print(response.text)
+
+
+if __name__ == "__main__":
+    main()
+
