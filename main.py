@@ -7,6 +7,7 @@ from google.genai import types
 
 from call_function import available_functions
 from prompts import system_prompt
+from config import MAX_ITERS
 
 def main() -> None:
     # Setting up argument parsing
@@ -29,10 +30,18 @@ def main() -> None:
     if args.verbose:
         print(f"User prompt: {args.user_prompt}\n")
 
-    generate_content(client, messages, args.verbose)
+    for _ in range(MAX_ITERS):
+        try:
+            final_resonse = generate_content(client, messages, args.verbose)
+            
+            if final_response:
+                print("Final Response:")
+                print(final_response)
+                return
+        except Exception as e:
+            print(f"Error in generated content: {e}")
 
-def generate_content(
-    client: genai.Client, messages: list[types.Content], verbose: bool) -> None:
+def generate_content(client: genai.Client, messages: list[types.Content], verbose: bool) -> str | None:
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=messages,
@@ -49,13 +58,28 @@ def generate_content(
         print("Prompt tokens:", response.usage_metadata.prompt_token_count)
         print("Response tokens:", response.usage_metadata.candidates_token_count)
 
-    if not response.function_calls:
-        print("Response:")
-        print(response.text)
-        return
+        if response.candidates:
+            for candidate in response.candidates:
+                if candidate.content:
+                    message.append(candidate.content)
 
+    if not response.function_calls:
+        return response.text
+
+    function_responses: list[types.Part] = []
     for function_call in response.function_calls:
-        print(f"Calling function: {function_call.name}({function_call.args})")
+        result = call_function(function_call, verbose)
+        if (
+            not result.parts
+            or not result.parts[0].function_response
+            or not result.parts[0].function_response.response
+        ):
+            raise RuntimeError(f"Empty function response for {function_call.name}")
+        if verbose:
+            print(f"-> {result.parts[0].function_response.response}")
+        function_responses.append(result.parts[0])
+
+    messages.append(types.Content(role="user", parts=function_responses))
 
 if __name__ == "__main__":
     main()
