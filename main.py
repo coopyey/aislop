@@ -1,28 +1,27 @@
-import os
 import argparse
+import os
+import sys
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
-from call_function import available_functions
-from prompts import system_prompt
+from call_function import available_functions, call_function
 from config import MAX_ITERS
+from prompts import system_prompt
+
 
 def main() -> None:
-    # Setting up argument parsing
     parser = argparse.ArgumentParser(description="AI Code Assistant")
     parser.add_argument("user_prompt", type=str, help="Prompt to send to Gemini")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     args = parser.parse_args()
 
-    # Setting up environment and getting key
     load_dotenv()
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY environment variable not set")
 
-    # Creating the client and taking in the prompt
     client = genai.Client(api_key=api_key)
     messages: list[types.Content] = [
         types.Content(role="user", parts=[types.Part(text=args.user_prompt)])
@@ -32,16 +31,21 @@ def main() -> None:
 
     for _ in range(MAX_ITERS):
         try:
-            final_resonse = generate_content(client, messages, args.verbose)
-            
+            final_response = generate_content(client, messages, args.verbose)
             if final_response:
-                print("Final Response:")
+                print("Final response:")
                 print(final_response)
                 return
         except Exception as e:
-            print(f"Error in generated content: {e}")
+            print(f"Error in generate_content: {e}")
 
-def generate_content(client: genai.Client, messages: list[types.Content], verbose: bool) -> str | None:
+    print(f"Maximum iterations ({MAX_ITERS}) reached")
+    sys.exit(1)
+
+
+def generate_content(
+    client: genai.Client, messages: list[types.Content], verbose: bool
+) -> str | None:
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=messages,
@@ -49,19 +53,17 @@ def generate_content(client: genai.Client, messages: list[types.Content], verbos
             tools=[available_functions], system_instruction=system_prompt
         ),
     )
-    # If metadata fails then call probably failed
     if not response.usage_metadata:
         raise RuntimeError("Gemini API response appears to be malformed")
 
-    # If verbose command specified
     if verbose:
         print("Prompt tokens:", response.usage_metadata.prompt_token_count)
         print("Response tokens:", response.usage_metadata.candidates_token_count)
 
-        if response.candidates:
-            for candidate in response.candidates:
-                if candidate.content:
-                    message.append(candidate.content)
+    if response.candidates:
+        for candidate in response.candidates:
+            if candidate.content:
+                messages.append(candidate.content)
 
     if not response.function_calls:
         return response.text
@@ -81,6 +83,6 @@ def generate_content(client: genai.Client, messages: list[types.Content], verbos
 
     messages.append(types.Content(role="user", parts=function_responses))
 
+
 if __name__ == "__main__":
     main()
-
